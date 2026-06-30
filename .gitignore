@@ -1,0 +1,4 @@
+# ログインCookieは絶対にコミットしない（Secretに入れる）
+cookies_*.json
+__pycache__/
+*.pyc

@@ -1,0 +1,63 @@
+name: note daily auto
+
+# 毎日 JST 5:00 (=UTC 20:00) に起動。手動実行も可。
+on:
+  schedule:
+    - cron: '0 20 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # uploaded記録をコミットするため
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Playwrightインストール
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: 整体記事を生成
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ARTICLE_DIR: articles/seitai
+        run: python generate_seitai.py
+
+      - name: マーケ記事を生成
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ARTICLE_DIR: articles/consul
+        run: python generate_consul.py
+
+      - name: 整体記事を整体アカウントへ投稿
+        env:
+          NOTE_COOKIES_JSON: ${{ secrets.NOTE_COOKIES_SEITAI }}
+          ARTICLE_DIR: articles/seitai
+          PATTERN: 'note_*.md'
+          UPLOADED_FILE: uploaded_seitai.json
+          LABEL: seitai
+        run: python upload_cloud.py
+
+      - name: マーケ記事をコンサルアカウントへ投稿
+        env:
+          NOTE_COOKIES_JSON: ${{ secrets.NOTE_COOKIES_CONSUL }}
+          ARTICLE_DIR: articles/consul
+          PATTERN: 'mk_*.md'
+          UPLOADED_FILE: uploaded_consul.json
+          LABEL: consul
+        run: python upload_cloud.py
+
+      - name: 生成記事と投稿記録を保存(コミット)
+        run: |
+          git config user.name "note-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add -A
+          git commit -m "auto: $(date -u +%F)" || echo "変更なし"
+          git push || echo "push skip"
