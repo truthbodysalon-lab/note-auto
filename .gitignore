@@ -1,4 +1,6 @@
 # ログインCookieは絶対にコミットしない（Secretに入れる）
 cookies_*.json
+# Mac側の投稿済み記録（ローカル専用・同期で消えないように除外）
+uploaded_*_local.json
 __pycache__/
 *.pyc
