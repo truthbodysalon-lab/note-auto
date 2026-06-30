@@ -4,3 +4,6 @@ cookies_*.json
 uploaded_*_local.json
 __pycache__/
 *.pyc
+post_local.log
+post_local.out.log
+post_local.err.log
