@@ -23,10 +23,19 @@ post_one () {
       "$KIT/uploaded_${label}_local.json" $label >> $LOG 2>&1
     rm -f $NA/.dead_$label   # 復活したらフラグ解除（次に切れたら再通知できる）
   else
-    # セッション切れ→記事は保持（投稿しない）。切れた瞬間1回だけLINE通知
+    # セッション切れ→記事は保持（投稿しない）。切れた瞬間に1回通知し、
+    # 放置3日ごとに再通知する（2026-08-08追加: 1回きりだと見逃して記事が溜まり続けるため）
     echo "[$label] ⚠️セッション切れ→投稿スキップ（記事は保持）" >> $LOG
+    need_notify=0
     if [ ! -f $NA/.dead_$label ]; then
-      printf '⚠️ note（%s）のログインが切れました。\n\nデスクトップの「noteログイン.command」をダブルクリックして再ログインしてください。\n\n生成済みの記事は溜めてあるので、ログインすれば次回自動で投稿されます（記事は失われません）。' "$jp" | $LINE >> $LOG 2>&1
+      need_notify=1
+    elif [ -n "$(find $NA/.dead_$label -mtime +3 2>/dev/null)" ]; then
+      need_notify=1
+      pending=$(ls "$KIT/articles/$label" 2>/dev/null | wc -l | tr -d ' ')
+      echo "[$label] 放置3日超（滞留 ${pending}本）→再通知" >> $LOG
+    fi
+    if [ $need_notify -eq 1 ]; then
+      printf '⚠️ note（%s）のログインが切れました。\n\nデスクトップの「noteログイン.command」をダブルクリックして再ログインしてください（切れているアカウントだけブラウザが開き、完了後に溜まった記事を自動投稿します）。\n\n生成済みの記事は溜めてあるので失われません。放置中は3日ごとにこの通知を再送します。' "$jp" | $LINE >> $LOG 2>&1
       touch $NA/.dead_$label
     fi
   fi
