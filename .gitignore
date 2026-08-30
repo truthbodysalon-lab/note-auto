@@ -7,3 +7,6 @@ __pycache__/
 post_local.log
 post_local.out.log
 post_local.err.log
+publish_seitai.log
+publish_seitai.out.log
+publish_seitai.err.log
