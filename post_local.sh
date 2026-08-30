@@ -41,7 +41,9 @@ post_one () {
   fi
 }
 
-# 整体(seitai)は publish_seitai.sh で「公開」まで自動化したため、ここでは扱わない（重複投稿防止）
+# 整体・コンサルとも「下書き保存」まで（作成は下書きまで）。整体の"公開"は publish_seitai.sh が
+# 「画像付き下書きを古い順に1本ずつ」担当（テキスト下書きは画像なし＝公開対象外なので二重公開しない）
+post_one seitai "note_*.md" "整体・まぁ"
 post_one consul "mk_*.md" "コンサル・高橋雅英"
 
 echo "=== 完了 ===" >> $LOG
