@@ -41,7 +41,7 @@ post_one () {
   fi
 }
 
-post_one seitai "note_*.md" "整体・まぁ"
+# 整体(seitai)は publish_seitai.sh で「公開」まで自動化したため、ここでは扱わない（重複投稿防止）
 post_one consul "mk_*.md" "コンサル・高橋雅英"
 
 echo "=== 完了 ===" >> $LOG
