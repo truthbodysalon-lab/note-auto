@@ -40,20 +40,31 @@ PROMPT = f"""あなたは整体師・サロン経営者向けのマーケティ�
 【文字数】4500〜6500字
 Markdown本文のみ出力。前置き不要。冒頭は必ず「# 」で始めること。"""
 
-url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent?key={API_KEY}"
 payload = {"contents":[{"parts":[{"text":PROMPT}]}], "generationConfig":{"temperature":0.9,"maxOutputTokens":16384,"thinkingConfig":{"thinkingBudget":0}}}
-req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={"Content-Type":"application/json"}, method="POST")
-for attempt in range(3):
-    try:
-        with urllib.request.urlopen(req, timeout=120) as r:
-            d = json.loads(r.read())
-        text = d["candidates"][0]["content"]["parts"][0]["text"].strip()
-        if not text.startswith("#") and "# " in text:
-            text = text[text.find("# "):]
-        open(OUT, "w", encoding="utf-8").write(text)
-        print(f"生成完了: {OUT} ({len(text)}字)")
+# 2026-09-20: 1モデル×3回リトライでは 503(高負荷)/429(枠)/404(廃止) の日に記事が出なかった(9/7)。
+# 無料枠も負荷もモデル別なので、失敗したら待たずに次のモデルへ切替える。全滅したら60秒置いてもう1周。
+MODELS = [MODEL] + [m for m in ("gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.8-flash", "gemini-3.7-flash", "gemini-2.5-flash") if m != MODEL]
+done = False
+for rnd in range(2):
+    for m in MODELS:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={API_KEY}"
+        req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={"Content-Type":"application/json"}, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                d = json.loads(r.read())
+            text = d["candidates"][0]["content"]["parts"][0]["text"].strip()
+            if not text.startswith("#") and "# " in text:
+                text = text[text.find("# "):]
+            if len(text) < 1500:
+                raise ValueError(f"出力が短すぎる({len(text)}字)")
+            open(OUT, "w", encoding="utf-8").write(text)
+            print(f"生成完了: {OUT} ({len(text)}字・model={m})")
+            done = True
+            break
+        except Exception as e:
+            print(f"{m} 失敗→次のモデルへ: {str(e)[:100]}"); time.sleep(3)
+    if done:
         break
-    except Exception as e:
-        print(f"試行{attempt+1}失敗: {str(e)[:80]}"); time.sleep(10)
-else:
+    print("全モデル失敗。60秒待って再試行"); time.sleep(60)
+if not done:
     raise SystemExit("生成失敗")
