@@ -4,8 +4,12 @@ name: note daily generate
 # 投稿はMac側が git pull して行う（noteがクラウドからの投稿をブロックするため）。
 on:
   schedule:
-    - cron: '35 19 * * *'   # 04:35 JST
+    - cron: '17 18 * * *'   # 03:17 JST（前倒し。UTC日付は不変）
   workflow_dispatch:
+
+concurrency:
+  group: note-daily
+  cancel-in-progress: false
 
 permissions:
   contents: write
