@@ -25,16 +25,30 @@ fi
 # 1) クラウド生成の最新記事を取得（クラウドを正として強制同期）
 cd $KIT && git fetch origin >> $LOG 2>&1 && git reset --hard origin/main >> $LOG 2>&1
 
+# Marketing generation now lives in the new private repository. Keep uploaded ledger local.
+MARKETING=/Users/mt112/marketing-content
+marketing_ready=0
+if git -C "$MARKETING" pull --ff-only origin main >> "$LOG" 2>&1; then
+  marketing_ready=1
+else
+  echo "[consul] 新GitHubの原稿を取得できないため保持。次回の定刻に確認" >> "$LOG"
+fi
+
 # 2) アカウントごとに「生死チェック→生きてれば投稿／切れてれば通知して保持」
 post_one () {
   local label=$1 glob=$2 jp=$3
+  local article_dir="$KIT/articles/$label"
+  if [ "$label" = "consul" ]; then
+    [ "$marketing_ready" -eq 1 ] || return 0
+    article_dir="$MARKETING/articles/consul"
+  fi
   # ★エラーを握り潰さない：例外内容を必ず捕まえてログに残す
   local sess_out sess_rc
   sess_out=$(/usr/bin/python3 $NA/session_alive.py $label 2>&1); sess_rc=$?
   if [ $sess_rc -eq 0 ]; then
     # セッション生存→投稿（溜まった記事も自動で追いつく。dedupで二重投稿なし）
     /usr/bin/python3 $NA/upload.py \
-      $NA/profiles/$label "$KIT/articles/$label" "$glob" \
+      $NA/profiles/$label "$article_dir" "$glob" \
       "$KIT/uploaded_${label}_local.json" $label >> $LOG 2>&1
     rm -f $NA/.dead_$label   # 復活したらフラグ解除（次に切れたら再通知できる）
   else

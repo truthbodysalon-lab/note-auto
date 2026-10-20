@@ -30,12 +30,6 @@ jobs:
           ARTICLE_DIR: articles/seitai
         run: python generate_seitai.py
 
-      - name: マーケ記事を生成
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          ARTICLE_DIR: articles/consul
-        run: python generate_consul.py
-
       - name: 生成した記事をリポジトリに保存
         run: |
           git config user.name "note-bot"
