@@ -76,7 +76,10 @@ for rnd in range(2):
         try:
             with urllib.request.urlopen(req, timeout=120) as r:
                 d = json.loads(r.read())
-            text = d["candidates"][0]["content"]["parts"][0]["text"].strip()
+            cand = d["candidates"][0]
+            if cand.get("finishReason") == "MAX_TOKENS":
+                raise ValueError("出力が途中で打ち切られた(MAX_TOKENS)")
+            text = cand["content"]["parts"][0]["text"].strip()
             if not text.startswith("#") and "# " in text:
                 text = text[text.find("# "):]
             if len(text) < 1500:
