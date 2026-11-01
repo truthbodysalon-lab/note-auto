@@ -31,15 +31,23 @@ jobs:
         run: python generate_seitai.py
 
       - name: マーケ記事を生成
+        # 整体記事の生成が失敗してもマーケ記事は作る（ジョブ自体は失敗のまま残るので気付ける）
+        if: ${{ !cancelled() }}
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ARTICLE_DIR: articles/consul
         run: python generate_consul.py
 
       - name: 生成した記事をリポジトリに保存
+        # 片方の生成が失敗しても、できた記事は保存する
+        if: ${{ !cancelled() }}
         run: |
           git config user.name "note-bot"
           git config user.email "bot@users.noreply.github.com"
           git add -A
-          git commit -m "generate: $(date -u +%F)" || echo "変更なし"
-          git push || echo "push skip"
+          if git diff --cached --quiet; then echo "変更なし"; exit 0; fi
+          git commit -m "generate: $(date -u +%F)"
+          # 実行中にmainへ手動コミットがあってもpushが失敗しないよう追従する。
+          # push失敗を握りつぶすと記事が消えてもジョブが成功に見えるため、失敗はそのまま失敗にする。
+          git pull --rebase origin main
+          git push origin HEAD:main
