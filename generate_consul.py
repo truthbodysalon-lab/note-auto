@@ -56,6 +56,13 @@ def _norm_title(t: str) -> str:
 # 直近タイトルと正規化後に完全一致したら、モデル切替と同じリトライ経路で再生成させる。
 RECENT_NORM = {_norm_title(r) for r in recent if _norm_title(r)}
 
+# consul記事は整体院の店舗情報（店名・住所・電話・公式HP・予約URL）を出さないルール。
+# プロンプトだけでは漏れうるので、生成後に機械チェックして混入時は再生成する。
+STORE_INFO_PATTERNS = [
+    r"トゥルース", r"body-salon-truth", r"hotpepper",
+    r"0258[-‐ー]?94[-‐ー]?5898", r"〒\s?940", r"柳原町", r"諸橋パーキング",
+]
+
 
 payload = {"contents":[{"parts":[{"text":PROMPT}]}], "generationConfig":{"temperature":0.9,"maxOutputTokens":16384,"thinkingConfig":{"thinkingBudget":0}}}
 # 2026-09-20: 1モデル×3回リトライでは 503(高負荷)/429(枠)/404(廃止) の日に記事が出なかった(9/7)。
@@ -74,6 +81,9 @@ for rnd in range(2):
                 text = text[text.find("# "):]
             if len(text) < 1500:
                 raise ValueError(f"出力が短すぎる({len(text)}字)")
+            leak = next((p for p in STORE_INFO_PATTERNS if re.search(p, text)), None)
+            if leak:
+                raise ValueError(f"店舗情報が混入: {leak}")
             if _norm_title(text) in RECENT_NORM:
                 raise ValueError(f"タイトルが直近と完全一致: {text.split(chr(10),1)[0][:30]}")
             open(OUT, "w", encoding="utf-8").write(text)
