@@ -3,7 +3,7 @@
 環境変数: GEMINI_API_KEY
 出力: ARTICLE_DIR/mk_<日付>_01.md
 """
-import os, json, time, datetime, urllib.request, glob
+import os, re, json, time, datetime, urllib.request, glob
 
 API_KEY = os.environ["GEMINI_API_KEY"]
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
@@ -31,7 +31,7 @@ PROMPT = f"""あなたは整体師・サロン経営者向けのマーケティ�
 
 【読者】月商100万前後で停滞する整体師・サロン経営者
 【テーマ候補】継続コース設計/リピート率向上/高単価化/オファー設計/MEO・Googleマップ集客/SNS導線/紹介の仕組み化/ホットペッパー脱依存/価格設計/時間設計 から1つ
-【重複回避】直近タイトル: {recent}
+【重複回避】直近タイトル: {recent}（同じタイトル・同じ「」内のセリフは使わない）
 【売れるタイトルの型(必ず踏襲)】「{{読者が言いたい変化後のセリフ}}」——{{対象者}}が{{具体的手段}}で{{達成した結果}}にした完全手順
   例: 「広告費ゼロで新規が来た」——整体師がGoogleマップをたった5つの設定で地域No.1にした完全手順
 【構成(UCCHAN型・全文無料)】# タイトル → ##共感導入(あるある) → ##院長の体験・気づき → ##第1章〜第5章(仕組み/手順/数字/テンプレ/ロードマップ) → ##あなたへの問い → 固定CTA
@@ -47,6 +47,23 @@ PROMPT = f"""あなたは整体師・サロン経営者向けのマーケティ�
 【文字数】4500〜6500字
 Markdown本文のみ出力。前置き不要。冒頭は必ず「# 」で始めること。"""
 
+def _norm_title(t: str) -> str:
+    t = t.split("\n", 1)[0].lstrip("#").strip()
+    return re.sub(r"[^\w一-龥ぁ-んァ-ン]", "", t)
+
+
+# 2026-11-01: 10月だけで同一タイトルが6本（「もう雑務に追われない」——…AIで業務を自動化…）出ていた。
+# 直近タイトルと正規化後に完全一致したら、モデル切替と同じリトライ経路で再生成させる。
+RECENT_NORM = {_norm_title(r) for r in recent if _norm_title(r)}
+
+# consul記事は整体院の店舗情報（店名・住所・電話・公式HP・予約URL）を出さないルール。
+# プロンプトだけでは漏れうるので、生成後に機械チェックして混入時は再生成する。
+STORE_INFO_PATTERNS = [
+    r"トゥルース", r"body-salon-truth", r"hotpepper",
+    r"0258[-‐ー]?94[-‐ー]?5898", r"〒\s?940", r"柳原町", r"諸橋パーキング",
+]
+
+
 payload = {"contents":[{"parts":[{"text":PROMPT}]}], "generationConfig":{"temperature":0.9,"maxOutputTokens":16384,"thinkingConfig":{"thinkingBudget":0}}}
 # 2026-09-20: 1モデル×3回リトライでは 503(高負荷)/429(枠)/404(廃止) の日に記事が出なかった(9/7)。
 # 無料枠も負荷もモデル別なので、失敗したら待たずに次のモデルへ切替える。全滅したら60秒置いてもう1周。
@@ -59,11 +76,19 @@ for rnd in range(2):
         try:
             with urllib.request.urlopen(req, timeout=120) as r:
                 d = json.loads(r.read())
-            text = d["candidates"][0]["content"]["parts"][0]["text"].strip()
+            cand = d["candidates"][0]
+            if cand.get("finishReason") == "MAX_TOKENS":
+                raise ValueError("出力が途中で打ち切られた(MAX_TOKENS)")
+            text = cand["content"]["parts"][0]["text"].strip()
             if not text.startswith("#") and "# " in text:
                 text = text[text.find("# "):]
             if len(text) < 1500:
                 raise ValueError(f"出力が短すぎる({len(text)}字)")
+            leak = next((p for p in STORE_INFO_PATTERNS if re.search(p, text)), None)
+            if leak:
+                raise ValueError(f"店舗情報が混入: {leak}")
+            if _norm_title(text) in RECENT_NORM:
+                raise ValueError(f"タイトルが直近と完全一致: {text.split(chr(10),1)[0][:30]}")
             open(OUT, "w", encoding="utf-8").write(text)
             print(f"生成完了: {OUT} ({len(text)}字・model={m})")
             done = True
