@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""クラウド用 マーケ記事生成（Gemini API・無料枠）
-環境変数: GEMINI_API_KEY
+"""クラウド用 マーケ記事生成（Gemini API・無料枠。全滅した日はMacがCodexで代行＝LLM_BACKEND=codex）
+環境変数: GEMINI_API_KEY（Geminiのとき）
 出力: ARTICLE_DIR/mk_<日付>_01.md
 """
-import os, re, json, time, datetime, urllib.request, glob
+import os, re, json, time, datetime, glob
+import llm_backend
 
-API_KEY = os.environ["GEMINI_API_KEY"]
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 ARTICLE_DIR = os.environ.get("ARTICLE_DIR", "articles/consul")
 os.makedirs(ARTICLE_DIR, exist_ok=True)
@@ -71,71 +71,47 @@ PROMPT = f"""あなたは整体師・サロン経営者向けのマーケティ�
 【文字数】4500〜6500字
 Markdown本文のみ出力。前置き不要。冒頭は必ず「# 」で始めること。"""
 
-payload = {"contents":[{"parts":[{"text":PROMPT}]}], "generationConfig":{"temperature":0.9,"maxOutputTokens":16384,"thinkingConfig":{"thinkingBudget":0}}}
-# 2026-09-20: 1モデル×3回リトライでは 503(高負荷)/429(枠)/404(廃止) の日に記事が出なかった(9/7)。
-# 無料枠も負荷もモデル別なので、失敗したら待たずに次のモデルへ切替える。全滅したら60秒置いてもう1周。
 MODELS = [MODEL] + [m for m in ("gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.8-flash", "gemini-3.7-flash", "gemini-2.5-flash") if m != MODEL]
 
 # 2026-11-07: 指示だけでは直近タイトル（全部「もう〜」型）を真似して型が残ったため、生成後に機械で検査する。
-# 型が残っていたらタイトルだけ作り直す。作り直しに失敗しても記事は止めない（元のタイトルで保存）
+# 型が残っていたらタイトルだけ作り直す。作り直しに失敗しても記事は止めない
 BAD_TITLE = re.compile(r"月商100万で停滞する整体師が|^「もう|完全手順$")
 
-def fix_title(text, m):
+def fix_title(text):
     head, _, rest = text.partition("\n")
     title = head.lstrip("#").strip()
     if not BAD_TITLE.search(title) and len(title) <= 50:
         return text
+    ok = lambda s: bool(s) and not BAD_TITLE.search(s) and 10 <= len(s) <= 60 and ("AI" not in title or "AI" in s)
     ask = f"""次のnote記事（整体師・サロン経営者向けマーケティング）のタイトルを1本だけ作り直してください。
 今のタイトル: {title}
 本文の冒頭:
 {rest[:1500]}
 条件: 30〜45字。「もう〜」で始めない。「月商100万で停滞する整体師が」「完全手順」は使わない。具体的な数字／院長の一人称の体験（例: なぜ私の整体院は〜のか）／思い込みをひっくり返す一言（例: 〜は思い込みだった）のどれかを入れる。店名・地名は入れない。誇大表現NG。{"必ず「AI」を含める。" if "AI" in title else ""}
 タイトルの文字列だけを1行で出力。"""
-    body = {"contents":[{"parts":[{"text":ask}]}], "generationConfig":{"temperature":0.8,"maxOutputTokens":200,"thinkingConfig":{"thinkingBudget":0}}}
-    ok = lambda s: not BAD_TITLE.search(s) and 10 <= len(s) <= 60 and ("AI" not in title or "AI" in s)
-    for mm in [m] + [x for x in MODELS if x != m]:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{mm}:generateContent?key={API_KEY}"
-        try:
-            req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type":"application/json"}, method="POST")
-            with urllib.request.urlopen(req, timeout=60) as r:
-                new = json.loads(r.read())["candidates"][0]["content"]["parts"][0]["text"].strip().splitlines()[0]
-            new = new.lstrip("#").strip().strip("\"'*` ")
-            if not ok(new):
-                raise ValueError(f"作り直しも条件外: {new}")
-            print(f"タイトル作り直し({mm}): {title} → {new}")
-            return f"# {new}\n{rest}"
-        except Exception as e:
-            print(f"タイトル作り直し失敗({mm}): {str(e)[:80]}"); time.sleep(2)
-    # 全モデル失敗: 「——」より前が条件を満たせばそこだけ残す
+    new = (llm_backend.ask_short(ask, MODELS) or "").lstrip("#").strip().strip("\"'*` ")
+    if ok(new):
+        print(f"タイトル作り直し: {title} → {new}")
+        return f"# {new}\n{rest}"
+    # 作り直せない時は「——」より前が条件を満たせばそこだけ残す
     front = title.split("——")[0].strip()
     if front != title and ok(front):
         print(f"タイトルを前半だけに短縮: {title} → {front}")
         return f"# {front}\n{rest}"
-    print("タイトル作り直しできず（元のまま保存）")
+    print(f"タイトル作り直しできず（元のまま保存）: {new[:40]}")
     return text
 
-done = False
-for rnd in range(2):
-    for m in MODELS:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={API_KEY}"
-        req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={"Content-Type":"application/json"}, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=120) as r:
-                d = json.loads(r.read())
-            text = d["candidates"][0]["content"]["parts"][0]["text"].strip()
-            if not text.startswith("#") and "# " in text:
-                text = text[text.find("# "):]
-            if len(text) < 1500:
-                raise ValueError(f"出力が短すぎる({len(text)}字)")
-            text = fix_title(text, m)
-            open(OUT, "w", encoding="utf-8").write(text)
-            print(f"生成完了: {OUT} ({len(text)}字・model={m})")
-            done = True
-            break
-        except Exception as e:
-            print(f"{m} 失敗→次のモデルへ: {str(e)[:100]}"); time.sleep(3)
-    if done:
-        break
-    print("全モデル失敗。60秒待って再試行"); time.sleep(60)
-if not done:
-    raise SystemExit("生成失敗")
+def check(text):
+    if not text.startswith("#") and "# " in text:
+        text = text[text.find("# "):]
+    if len(text) < 1500:
+        raise ValueError(f"出力が短すぎる({len(text)}字)")
+    return text
+
+try:
+    text, used = llm_backend.generate(PROMPT, MODELS, check)
+except RuntimeError as e:
+    raise SystemExit(f"生成失敗: {e}")
+text = fix_title(text)
+open(OUT, "w", encoding="utf-8").write(text)
+print(f"生成完了: {OUT} ({len(text)}字・model={used})")

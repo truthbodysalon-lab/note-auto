@@ -25,6 +25,32 @@ fi
 # 1) クラウド生成の最新記事を取得（クラウドを正として強制同期）
 cd $KIT && git fetch origin >> $LOG 2>&1 && git reset --hard origin/main >> $LOG 2>&1
 
+gnet () { git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 "$@"; }
+
+# 1.5) クラウドがGeminiの無料枠で書けなかった日は、MacのCodex（ChatGPTサブスク内）で代わりに書く（2026-11-07 masa指示）
+#      クラウドは3:17 JST（=UTCの前日）に動きUTC日付で名前を付けるので、Mac実行時（7:10以降）の対象は「前日」
+D=$(date -v-1d +%F); filled=""; newfiles=()
+fill () {  # $1=フォルダ $2=ファイル名の頭 $3=生成スクリプト
+  [ -f "$KIT/articles/$1/$2_${D}_01.md" ] && return 0
+  echo "[codex代行] $1 の $D 分が無い→Codexで生成" >> $LOG
+  if (cd $KIT && LLM_BACKEND=codex DATE_STR=$D ARTICLE_DIR=articles/$1 /usr/bin/python3 $3 >> $LOG 2>&1) \
+     && [ -f "$KIT/articles/$1/$2_${D}_01.md" ]; then
+    filled="$filled $1"; newfiles+=("articles/$1/$2_${D}_01.md")
+  else
+    echo "[codex代行] $1 も失敗" >> $LOG
+  fi
+}
+fill seitai note generate_seitai.py
+fill consul mk generate_consul.py
+if [ -n "$filled" ]; then
+  export GIT_TERMINAL_PROMPT=0
+  cd $KIT && git add -- "${newfiles[@]}" \
+    && git commit -q -m "generate: $D（Gemini不可のためCodexで代行:${filled}）" -- "${newfiles[@]}" \
+    && gnet pull -q --rebase origin main >> $LOG 2>&1 && gnet push -q origin main >> $LOG 2>&1 \
+    || echo "[codex代行] push失敗（記事はMacに残っていて下の投稿は続ける）" >> $LOG
+  echo "ℹ️ note記事: Geminiの無料枠で生成できなかったため、Codexで代わりに書きました（${filled# }・${D}分）。このあと通常どおり下書き保存します。" | $NOTIFY >> $LOG 2>&1
+fi
+
 # 2) アカウントごとに「生死チェック→生きてれば投稿／切れてれば通知して保持」
 post_one () {
   local label=$1 glob=$2 jp=$3
@@ -64,10 +90,9 @@ post_one consul "mk_*.md" "コンサル・高橋雅英"
 #    generate_consul.py が insights/consul_insights.json を読んで反応の良い記事を参考に書く。失敗しても前回分で生成は続く
 if /usr/bin/python3 $KIT/tools/note_stats.py >> $LOG 2>&1; then
   export GIT_TERMINAL_PROMPT=0
-  G="git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30"
   cd $KIT && git add insights/consul_insights.json \
     && { git diff --cached --quiet || git commit -q -m "insights: $(date +%F) note反応データ" -- insights/consul_insights.json; } \
-    && $G pull -q --rebase origin main >> $LOG 2>&1 && $G push -q origin main >> $LOG 2>&1 \
+    && gnet pull -q --rebase origin main >> $LOG 2>&1 && gnet push -q origin main >> $LOG 2>&1 \
     && echo "[insights] 反応データをpush" >> $LOG \
     || echo "[insights] push失敗（次回の実行で再送）" >> $LOG
 else

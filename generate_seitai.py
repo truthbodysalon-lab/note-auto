@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""クラウド用 整体（患者向け健康）記事生成（Gemini API・無料枠）
-環境変数: GEMINI_API_KEY
+"""クラウド用 整体（患者向け健康）記事生成（Gemini API・無料枠。全滅した日はMacがCodexで代行＝LLM_BACKEND=codex）
+環境変数: GEMINI_API_KEY（Geminiのとき）
 出力: ARTICLE_DIR/note_<日付>_01.md
 """
-import os, json, re, time, datetime, urllib.request, glob
+import os, json, re, time, datetime, glob
+import llm_backend
 
-API_KEY = os.environ["GEMINI_API_KEY"]
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 ARTICLE_DIR = os.environ.get("ARTICLE_DIR", "articles/seitai")
 os.makedirs(ARTICLE_DIR, exist_ok=True)
@@ -157,35 +157,21 @@ PROMPT = f"""あなたは整体院トゥルース（新潟県長岡市）の患�
 【文字数】4500〜6500字
 Markdown本文のみ出力。前置き不要。冒頭は必ず「# 」で始めること。"""
 
-payload = {"contents":[{"parts":[{"text":PROMPT}]}], "generationConfig":{"temperature":0.9,"maxOutputTokens":16384,"thinkingConfig":{"thinkingBudget":0}}}
-# 2026-09-20: 1モデル×3回リトライでは 503(高負荷)/429(枠)/404(廃止) の日に記事が出なかった(9/7)。
-# 無料枠も負荷もモデル別なので、失敗したら待たずに次のモデルへ切替える。全滅したら60秒置いてもう1周。
 MODELS = [MODEL] + [m for m in ("gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.8-flash", "gemini-3.7-flash", "gemini-2.5-flash") if m != MODEL]
-done = False
-for rnd in range(2):
-    for m in MODELS:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={API_KEY}"
-        req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={"Content-Type":"application/json"}, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=120) as r:
-                d = json.loads(r.read())
-            text = d["candidates"][0]["content"]["parts"][0]["text"].strip()
-            if not text.startswith("#") and "# " in text:
-                text = text[text.find("# "):]
-            if len(text) < 1500:
-                raise ValueError(f"出力が短すぎる({len(text)}字)")
-            title = title_of(text)
-            if is_title_duplicate(title, recent):
-                raise ValueError(f"タイトルが直近と重複疑い: {title[:30]}")
-            text = fix_access_block(text)
-            open(OUT, "w", encoding="utf-8").write(text)
-            print(f"生成完了: {OUT} ({len(text)}字・model={m})")
-            done = True
-            break
-        except Exception as e:
-            print(f"{m} 失敗→次のモデルへ: {str(e)[:100]}"); time.sleep(3)
-    if done:
-        break
-    print("全モデル失敗。60秒待って再試行"); time.sleep(60)
-if not done:
-    raise SystemExit("生成失敗")
+
+def check(text):
+    if not text.startswith("#") and "# " in text:
+        text = text[text.find("# "):]
+    if len(text) < 1500:
+        raise ValueError(f"出力が短すぎる({len(text)}字)")
+    title = title_of(text)
+    if is_title_duplicate(title, recent):
+        raise ValueError(f"タイトルが直近と重複疑い: {title[:30]}")
+    return fix_access_block(text)
+
+try:
+    text, used = llm_backend.generate(PROMPT, MODELS, check)
+except RuntimeError as e:
+    raise SystemExit(f"生成失敗: {e}")
+open(OUT, "w", encoding="utf-8").write(text)
+print(f"生成完了: {OUT} ({len(text)}字・model={used})")
