@@ -60,4 +60,18 @@ post_one () {
 post_one seitai "note_*.md" "整体・まぁ"
 post_one consul "mk_*.md" "コンサル・高橋雅英"
 
+# 3) コンサル記事の反応データ（PV・スキ・上位記事の書き出し）を取り、クラウドの生成へ渡す（2026-11-07 masa指示）
+#    generate_consul.py が insights/consul_insights.json を読んで反応の良い記事を参考に書く。失敗しても前回分で生成は続く
+if /usr/bin/python3 $KIT/tools/note_stats.py >> $LOG 2>&1; then
+  export GIT_TERMINAL_PROMPT=0
+  G="git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30"
+  cd $KIT && git add insights/consul_insights.json \
+    && { git diff --cached --quiet || git commit -q -m "insights: $(date +%F) note反応データ" -- insights/consul_insights.json; } \
+    && $G pull -q --rebase origin main >> $LOG 2>&1 && $G push -q origin main >> $LOG 2>&1 \
+    && echo "[insights] 反応データをpush" >> $LOG \
+    || echo "[insights] push失敗（次回の実行で再送）" >> $LOG
+else
+  echo "[insights] 反応データ取得失敗（前回分で生成を続ける）" >> $LOG
+fi
+
 echo "=== 完了 ===" >> $LOG
