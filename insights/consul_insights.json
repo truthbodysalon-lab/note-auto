@@ -1,7 +1,7 @@
 {
- "updated_at": "2026-11-07 10:57",
- "all_period": "1926/11/07〜2026/11/07",
- "monthly_period": "2026/10/08〜2026/11/07",
+ "updated_at": "2026-11-08 07:10",
+ "all_period": "1926/11/08〜2026/11/08",
+ "monthly_period": "2026/10/09〜2026/11/08",
  "score_rule": "PV + スキ×3",
  "top_all": [
   {
@@ -178,8 +178,8 @@
  "overused_pattern": {
   "pattern": "「もう〜」——月商100万で停滞する整体師が〜完全手順",
   "count": 65,
-  "avg_score": 9.8,
+  "avg_score": 9.9,
   "other_count": 58,
-  "other_avg_score": 15.6
+  "other_avg_score": 15.7
  }
 }
