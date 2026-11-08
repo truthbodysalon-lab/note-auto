@@ -50,6 +50,26 @@ except Exception as _e:
     print(f"反応データなし→従来の型で生成: {_e}")
 
 AI_RULE = "" if any("AI" in t for t in _titles) else "\n【今回はAI活用回】テーマは「AIの基礎／実際に動かしている業務効率化／初心者でもできる実践法」から選ぶ(テーマ候補より優先)。タイトルに必ず「AI」を含める。専門用語は初出で言い換え、コピペできるプロンプトを最低3本＋番号付き手順＋よくある失敗3つを入れる。自動化の紹介は匿名で、ツール料金は書かない。"
+
+# AI回の2回に1回は AI×Office回（2026-11-08 masa指示「AIを活用してExcelやWord、PowerPointなどの活用法も記事として販売できるように」）。
+# 直前のAI回のタイトルにOffice名が無ければ今回はOffice回。道具は直前のOffice回と変える（Excel→Word→PowerPoint）
+OFFICE = {"Excel": r"Excel|エクセル", "Word": r"Word|ワード", "PowerPoint": r"PowerPoint|パワポ|パワーポイント"}
+OFFICE_TOPIC = {
+    "Excel": "売上・新規客・来院数・広告費の表づくり、関数（SUMIFS・COUNTIFS・XLOOKUPなど）やピボットテーブルをAIに書かせる、月次の数字をAIに読ませて打ち手を出す",
+    "Word": "お客様への案内文・同意書・スタッフ向けマニュアル・チラシ原稿をAIで下書きし、Wordの見出しスタイルや目次で整える",
+    "PowerPoint": "セミナー資料・求人説明・提携先への提案資料をAIで構成（スライドごとの見出しと要点）し、PowerPointのアウトライン表示に貼って仕上げる",
+}
+if AI_RULE:
+    _ai = [t for t in (open(f, encoding="utf-8").readline() for f in sorted(glob.glob(f"{ARTICLE_DIR}/mk_*.md"))[-15:]) if "AI" in t]
+    _off = [k for t in _ai for k, p in OFFICE.items() if re.search(p, t)]
+    if not (_ai and _off and re.search(OFFICE[_off[-1]], _ai[-1])):
+        _keys = list(OFFICE)
+        _tool = _keys[(_keys.index(_off[-1]) + 1) % 3] if _off else "Excel"
+        AI_RULE = (f"\n【今回はAI×{_tool}回】テーマは「AIで{_tool}を使いこなす店舗経営」。内容の例: {OFFICE_TOPIC[_tool]}（テーマ候補より優先）。"
+                   f"タイトルに必ず「AI」と「{_tool}」を含める。読者はパソコンが得意ではない店舗経営者。{_tool}の画面の操作は番号付き手順で書き、"
+                   "AIへの頼み方はコピペできるプロンプトを最低3本＋よくある失敗3つを入れる。関数名・機能名・メニュー名は実在するものだけを書き、"
+                   "版（Microsoft 365・買い切り版など）で表示や有無が違うものはそう書く。お客様の氏名・電話番号などの個人情報をAIに貼らない注意を必ず入れる。ツール料金は書かない。")
+        print(f"AI×{_tool}回")
 PROMPT = f"""あなたは整体師・サロン経営者向けのマーケティングnote有料記事の専門ライターです。
 整体院を経営しながら発信を続けてきた立場から、経営者向けの記事を1本書いてください。
 【店舗情報の禁止】店名・屋号・地名の名乗り・住所・電話・公式HP・予約URL・来院誘導は本文・見出し・CTAすべてで一切書かない（自己紹介は「整体院を経営しながら発信を続けてきた立場から」程度に留め、地域名は一般論の例示のみ）。事例は「ある整体院」と匿名にする。{AI_RULE}
