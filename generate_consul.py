@@ -70,6 +70,16 @@ if AI_RULE:
                    "AIへの頼み方はコピペできるプロンプトを最低3本＋よくある失敗3つを入れる。関数名・機能名・メニュー名は実在するものだけを書き、"
                    "版（Microsoft 365・買い切り版など）で表示や有無が違うものはそう書く。お客様の氏名・電話番号などの個人情報をAIに貼らない注意を必ず入れる。ツール料金は書かない。")
         print(f"AI×{_tool}回")
+# AI回は効果の数字を作らない（2026-11-08 試作で「業務時間を半分以下にできた」と根拠のない数字がタイトル・本文に出たため）
+IS_AI = bool(AI_RULE)
+if IS_AI:
+    AI_RULE += ("\n【効果の数字は書かない】「業務時間が半分」「○倍」「○%削減」「○時間短縮」「月商○万円達成」のような、AIを使った効果の数字はタイトルにも本文にも書かない（裏づけの資料が無いため）。"
+                "書いてよい数字は、手順の数・プロンプトの本数・日数・表の列の数など、記事の中で事実として言えるものだけ。効果は「下書きの手間が減った」「迷う時間が減った」のように数字なしで書く。")
+EFFECT = re.compile(r"半分|[0-9０-９]+(?:\.[0-9]+)?\s*(?:倍|割|%|％)|[0-9０-９]+\s*時間(?:を|の)?(?:短縮|削減|浮)|(?:短縮|削減)(?:し|でき)|月商\s*[0-9０-９]+\s*万")
+# 本文は「効果を言っている」行だけを見る（Excelの表の「達成率80%」などの例は直さない）
+EFFECT_BODY = re.compile(r"(?:半分|[0-9０-９]+(?:\.[0-9]+)?\s*(?:倍|割|%|％))[^。\n]{0,15}(?:削減|短縮|減っ|減ら|増え|アップ|伸び|上が|速く|早く|楽に|になり|になっ|にでき|でき)|[0-9０-９]+\s*時間(?:を|の|も)?(?:短縮|削減|浮)")
+# 関西弁（2026-11-08 試作で「〜やん」「〜怖いんやろ？」が出た。【スタイル】の指示だけでは防げなかった）
+KANSAI = re.compile(r"やんか|やん[。」！？!?、]|やろ[。」？！?!]|(?<!大)へん[。」]|ねん[。」！？]|せやから|せやけど|あかん|ほんま")
 PROMPT = f"""あなたは整体師・サロン経営者向けのマーケティングnote有料記事の専門ライターです。
 整体院を経営しながら発信を続けてきた立場から、経営者向けの記事を1本書いてください。
 【店舗情報の禁止】店名・屋号・地名の名乗り・住所・電話・公式HP・予約URL・来院誘導は本文・見出し・CTAすべてで一切書かない（自己紹介は「整体院を経営しながら発信を続けてきた立場から」程度に留め、地域名は一般論の例示のみ）。事例は「ある整体院」と匿名にする。{AI_RULE}
@@ -108,14 +118,16 @@ BAD_TITLE = re.compile(r"月商100万で停滞する整体師が|^「もう|完�
 def fix_title(text):
     head, _, rest = text.partition("\n")
     title = head.lstrip("#").strip()
-    if not BAD_TITLE.search(title) and len(title) <= 50:
+    bad = lambda s: bool(BAD_TITLE.search(s)) or (IS_AI and bool(EFFECT.search(s))) or bool(KANSAI.search(s))
+    if not bad(title) and len(title) <= 50:
         return text
-    ok = lambda s: bool(s) and not BAD_TITLE.search(s) and 10 <= len(s) <= 60 and ("AI" not in title or "AI" in s)
+    _tools = [p for p in OFFICE.values() if re.search(p, title)]  # Office名は次回の回し方の判定キーなので落とさない
+    ok = lambda s: bool(s) and not bad(s) and 10 <= len(s) <= 60 and ("AI" not in title or "AI" in s) and all(re.search(p, s) for p in _tools)
     ask = f"""次のnote記事（整体師・サロン経営者向けマーケティング）のタイトルを1本だけ作り直してください。
 今のタイトル: {title}
 本文の冒頭:
 {rest[:1500]}
-条件: 30〜45字。「もう〜」で始めない。「月商100万で停滞する整体師が」「完全手順」は使わない。具体的な数字／院長の一人称の体験（例: なぜ私の整体院は〜のか）／思い込みをひっくり返す一言（例: 〜は思い込みだった）のどれかを入れる。店名・地名は入れない。誇大表現NG。{"必ず「AI」を含める。" if "AI" in title else ""}
+条件: 30〜45字。「もう〜」で始めない。「月商100万で停滞する整体師が」「完全手順」は使わない。具体的な数字／院長の一人称の体験（例: なぜ私の整体院は〜のか）／思い込みをひっくり返す一言（例: 〜は思い込みだった）のどれかを入れる。店名・地名は入れない。誇大表現NG。関西弁は使わない。{"必ず「AI」を含める。" if "AI" in title else ""}{"効果の数字（半分・○倍・○%削減・○時間短縮など）は入れず、手順の数や日数など事実として言える数字にする。" if IS_AI else ""}{"".join(f"「{k}」をそのまま含める。" for k, p in OFFICE.items() if re.search(p, title))}
 タイトルの文字列だけを1行で出力。"""
     new = (llm_backend.ask_short(ask, MODELS) or "").lstrip("#").strip().strip("\"'*` ")
     if ok(new):
@@ -141,6 +153,24 @@ try:
 except RuntimeError as e:
     raise SystemExit(f"生成失敗: {e}")
 text = fix_title(text)
+
+def fix_lines(text, pattern, how, limit=12):
+    """本文で pattern に当たる行（段落）だけを書き直す。直せない行は元のまま（記事は止めない）"""
+    lines = text.split("\n")
+    hits = [i for i, l in enumerate(lines) if i > 0 and pattern.search(l)][:limit]
+    for i in hits:
+        old = lines[i]
+        new = (llm_backend.ask_short(f"次の1段落を書き直してください。{how}意味・Markdownの記号（**・> ・番号など）・語りかけの調子は保つ。書き直した段落だけを1行で出力。\n{old}", MODELS, max_tokens=800) or "").strip()
+        if new and not pattern.search(new) and 0.5 * len(old) <= len(new) <= 1.6 * len(old) + 20:
+            lines[i] = new
+            print(f"書き直し: {old[:30]}… → {new[:30]}…")
+        else:
+            print(f"書き直しできず（元のまま）: {old[:40]}")
+    return "\n".join(lines)
+
+text = fix_lines(text, KANSAI, "関西弁をやめて、丁寧な標準語（です・ます調、くだけた会話文は標準語の話し言葉）にする。")
+if IS_AI:
+    text = fix_lines(text, EFFECT_BODY, "AIを使った効果の数字（半分・○倍・○%削減・○時間短縮・月商○万円など）を消し、数字なしの言い方（「手間が減った」「迷う時間が減った」など）にする。手順の数・日数など事実の数字は残してよい。")
 
 # テキストのご提案を書き忘れた日は、書籍案内の前（無ければ末尾）に定型で差し込む
 OFFER_URL = "https://square.link/u/JIiymU1c"
