@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-11-11 12:11",
+ "updated_at": "2026-11-11 19:10",
  "all_period": "1926/11/11〜2026/11/11",
  "monthly_period": "2026/10/12〜2026/11/11",
  "score_rule": "PV + スキ×3",
@@ -134,8 +134,8 @@
    "key": "n412ee39ca930",
    "title": "「もう集客に疲弊しない」——月商100万で停滞する整体師が「SNS導線」を最適化して安定集客を実現した完全手順",
    "pv": 6,
-   "likes": 2,
-   "like_rate": 33.3
+   "likes": 3,
+   "like_rate": 50.0
   }
  ],
  "worst_monthly": [
@@ -178,7 +178,7 @@
  "overused_pattern": {
   "pattern": "「もう〜」——月商100万で停滞する整体師が〜完全手順",
   "count": 67,
-  "avg_score": 9.8,
+  "avg_score": 9.9,
   "other_count": 58,
   "other_avg_score": 15.7
  }
